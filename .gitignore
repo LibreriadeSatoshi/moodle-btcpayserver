@@ -1,0 +1,11 @@
+# Moodle core and development files
+.dev/
+.moodle/
+.moodledata/
+
+# Local env (copy from env.example)
+env
+
+# Dependencies
+vendor/
+node_modules/
