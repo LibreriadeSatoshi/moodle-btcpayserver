@@ -53,7 +53,7 @@ if ($existing && !empty($existing->btcpay_checkout_url)) {
 }
 
 $successurl = \core_payment\helper::get_success_url($component, $paymentarea, $itemid);
-$returnurl = new \moodle_url('/payment/gateway/btcpay/return.php', ['paymentid' => $paymentid]);
+$returnurl = new \moodle_url('/payment/gateway/btcpay/return.php', ['paymentid' => $paymentid, 'close' => 1]);
 $redirecturl = $returnurl->out(false);
 
 $expiration = isset($config['btcpay_invoice_expiration_minutes']) ? (int) $config['btcpay_invoice_expiration_minutes'] : 60;

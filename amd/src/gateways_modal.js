@@ -30,10 +30,9 @@ import {getString} from 'core/str';
  * @param {string} component Name of the component
  * @param {string} paymentArea Payment area
  * @param {number} itemId Item id
- * @param {string} description Description (unused but required by core modal)
  * @returns {Promise<string>} Resolves with success message (after redirect, so rarely shown)
  */
-export const process = async(component, paymentArea, itemId, description) => {
+export const process = async(component, paymentArea, itemId) => {
     let result;
     try {
         result = await Ajax.call([{
@@ -50,8 +49,15 @@ export const process = async(component, paymentArea, itemId, description) => {
         return Promise.reject(msg || fallback);
     }
     if (result && result.redirecturl && typeof result.redirecturl === 'string' && result.redirecturl.trim() !== '') {
-        // Use replace() instead of href to prevent back button issues and ensure immediate navigation
-        window.location.replace(result.redirecturl);
+        const paymentUrl = result.redirecturl;
+        const returnUrl = paymentUrl.replace('pay.php', 'return.php');
+
+        // Open the payment page (invoice) in a new tab
+        window.open(paymentUrl, '_blank');
+
+        // Redirect the current tab to the processing page
+        window.location.replace(returnUrl);
+
         // Return a promise that never resolves to prevent core modal from redirecting to successurl
         return new Promise(() => {});
     }

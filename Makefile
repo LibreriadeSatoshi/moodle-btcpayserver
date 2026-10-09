@@ -37,7 +37,7 @@ bootstrap:
 	if [ ! -d "$$REPO_ROOT/.dev/moodle-docker" ]; then git clone https://github.com/moodlehq/moodle-docker.git "$$REPO_ROOT/.dev/moodle-docker"; else echo "moodle-docker already exists at .dev/moodle-docker/"; fi; \
 	export MOODLE_DOCKER_WWWROOT="$$REPO_ROOT/.moodle"; \
 	if [ ! -f "$$REPO_ROOT/.moodle/config.php" ]; then echo "Creating config.php..."; cp "$$REPO_ROOT/.dev/moodle-docker/config.docker-template.php" "$$REPO_ROOT/.moodle/config.php"; else echo "config.php already exists"; fi; \
-	PLUGIN_TARGET="$$REPO_ROOT/.moodle/$$PLUGIN_PATH"; PLUGIN_SOURCE="$$REPO_ROOT/$$PLUGIN_PATH"; PLUGIN_PARENT="$$(dirname "$$PLUGIN_TARGET")"; \
+	PLUGIN_TARGET="$$REPO_ROOT/.moodle/$$PLUGIN_PATH"; PLUGIN_SOURCE="$$REPO_ROOT"; PLUGIN_PARENT="$$(dirname "$$PLUGIN_TARGET")"; \
 	if [ ! -d "$$PLUGIN_SOURCE" ]; then echo "Error: Plugin not found at $$PLUGIN_SOURCE" >&2; exit 1; fi; \
 	mkdir -p "$$PLUGIN_PARENT"; \
 	if [ -L "$$PLUGIN_TARGET" ]; then \
@@ -50,7 +50,7 @@ bootstrap:
 	  [ -n "$${MOODLE_DOCKER_WEB_HOST:-}" ] && printf '      - MOODLE_DOCKER_WEB_HOST=%s\n' "$$MOODLE_DOCKER_WEB_HOST"; \
 	  [ -n "$${MOODLE_DOCKER_WEB_PORT:-}" ] && printf '      - MOODLE_DOCKER_WEB_PORT=%s\n' "$$MOODLE_DOCKER_WEB_PORT"; \
 	  [ -n "$${MOODLE_DOCKER_WEB_SCHEME:-}" ] && printf '      - MOODLE_DOCKER_WEB_SCHEME=%s\n' "$$MOODLE_DOCKER_WEB_SCHEME"; \
-	  printf '    volumes:\n      - "$${REPO_ROOT}/$${PLUGIN_PATH}:/var/www/html/$${PLUGIN_PATH}"\n'; \
+	  printf '    volumes:\n      - "$${REPO_ROOT}:/var/www/html/$${PLUGIN_PATH}"\n'; \
 	} > "$$REPO_ROOT/.dev/moodle-docker/local.yml"; \
 	echo "Created/updated .dev/moodle-docker/local.yml"; \
 	echo "Starting Docker containers..."; \
