@@ -63,3 +63,19 @@ $string['payment_received_processing'] = 'Payment received, processing...';
 $string['payment_webhook_processing'] = 'Your payment has been received. Enrollment will be processed automatically via webhook. If you are not enrolled within a few minutes, please contact support.';
 
 $string['returntocourse'] = 'Return to course';
+
+$string['privacy:metadata:paygw_btcpay_txn'] = 'Invoice records linking Moodle payments to BTCPay Server.';
+$string['privacy:metadata:btcpay'] = 'Payment references, amounts and currencies are sent to the configured BTCPay Server to create invoices.';
+$string['privacy:metadata:userid'] = 'The user who made the payment.';
+$string['privacy:metadata:paymentid'] = 'The Moodle payment reference.';
+$string['privacy:metadata:component'] = 'The component receiving the payment.';
+$string['privacy:metadata:paymentarea'] = 'The payment area within the receiving component.';
+$string['privacy:metadata:itemid'] = 'The item purchased with the payment.';
+$string['privacy:metadata:amount'] = 'The invoice amount.';
+$string['privacy:metadata:currency'] = 'The invoice currency.';
+$string['privacy:metadata:btcpay_invoice_id'] = 'The BTCPay Server invoice identifier.';
+$string['privacy:metadata:btcpay_checkout_url'] = 'The URL of the invoice checkout page.';
+$string['privacy:metadata:btcpay_status'] = 'The status of the invoice.';
+$string['privacy:metadata:delivered'] = 'Whether the purchased item has been delivered.';
+$string['privacy:metadata:timecreated'] = 'When the invoice record was created.';
+$string['privacy:metadata:timemodified'] = 'When the invoice record was last updated.';
