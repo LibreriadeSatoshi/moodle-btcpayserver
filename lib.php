@@ -26,7 +26,7 @@
  * Find and require Moodle config.php. Use from pay.php, return.php, webhook.php.
  *
  * Tries: (1) MOODLE_CONFIG_PATH env, (2) standard plugin path ../../../config.php,
- * (3) repo layout ../../../.moodle/config.php.
+ * (3) repository-root .moodle/config.php.
  *
  * @throws \Exception if config not found or not readable
  */
@@ -37,7 +37,7 @@ function paygw_btcpay_require_config(): void {
         $configpath = $pluginroot . '/../../../config.php';
     }
     if (!is_readable($configpath)) {
-        $configpath = $pluginroot . '/../../../.moodle/config.php';
+        $configpath = $pluginroot . '/.moodle/config.php';
     }
     if (!is_readable($configpath)) {
         throw new \Exception(

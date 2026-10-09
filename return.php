@@ -27,6 +27,14 @@ paygw_btcpay_require_config();
 require_login();
 
 $paymentid = required_param('paymentid', PARAM_INT);
+$close = optional_param('close', 0, PARAM_INT);
+
+// If the close parameter is provided, this is the secondary tab closing after payment.
+if ($close) {
+    echo html_writer::tag('script', 'window.close();');
+    echo get_string('payment_received', 'paygw_btcpay') . ' - You can close this tab.';
+    exit;
+}
 
 global $DB, $USER, $PAGE, $OUTPUT;
 
@@ -72,4 +80,10 @@ if ($txn->btcpay_status === 'Settled' && (int) $txn->delivered === 0) {
         'alert alert-info mt-3'
     );
 }
+
+// Add auto-refresh to continuously check if the webhook has delivered the payment
+if ((int) $txn->delivered === 0 && !in_array($txn->btcpay_status, ['Expired', 'Invalid'])) {
+    echo html_writer::tag('script', 'setTimeout(function() { window.location.reload(); }, 10000);');
+}
+
 echo $OUTPUT->footer();
