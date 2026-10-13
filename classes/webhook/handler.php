@@ -64,6 +64,10 @@ class handler {
                 return;
             }
             if ($type !== 'InvoiceSettled') {
+                // Only a freshly verified settlement can resolve a review decision.
+                if ($txn->btcpay_status === 'Review') {
+                    return;
+                }
                 $txn->btcpay_status = $statuses[$type];
                 $txn->timemodified = time();
                 $DB->update_record('paygw_btcpay_txn', $txn);
@@ -82,7 +86,7 @@ class handler {
                 $txn->btcpay_status = 'Review';
                 $txn->timemodified = time();
                 $DB->update_record('paygw_btcpay_txn', $txn);
-                error_log('paygw_btcpay: invoice ' . $invoiceid . ' requires manual review; delivery withheld.');
+                error_log('paygw_btcpay: transaction ' . (int) $txn->id . ' requires manual review; delivery withheld.');
                 return;
             }
 

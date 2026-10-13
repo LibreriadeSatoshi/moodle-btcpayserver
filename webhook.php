@@ -93,7 +93,7 @@ if ($webhooksecret === '' || !\paygw_btcpay\client::verify_webhook_signature($ra
 try {
     \paygw_btcpay\webhook\handler::process_webhook($eventdata, $invoiceid);
 } catch (\Throwable $e) {
-    error_log('paygw_btcpay: invoice ' . $invoiceid . ' could not be processed; webhook retry required.');
+    error_log('paygw_btcpay: transaction ' . (int) $txn->id . ' could not be processed; webhook retry required.');
     http_response_code(503);
     echo json_encode(['status' => 'retry']);
     exit;

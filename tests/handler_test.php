@@ -158,6 +158,52 @@ final class handler_test extends \advanced_testcase {
         $this->assertEquals(1, $DB->count_records('user_enrolments', ['userid' => $this->txn->userid]));
     }
 
+    /**
+     * Delayed lifecycle events must not erase a settlement review decision.
+     *
+     * @dataProvider lifecycle_events
+     * @param string $type Delayed event type
+     */
+    #[DataProvider('lifecycle_events')]
+    public function test_delayed_event_preserves_review(string $type): void {
+        global $DB;
+        \curl::mock_response(json_encode([
+            'id' => 'test-invoice', 'status' => 'Settled', 'additionalStatus' => 'PaidLate',
+        ]));
+        webhook\handler::process_webhook(['type' => 'InvoiceSettled'], 'test-invoice');
+        $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
+
+        webhook\handler::process_webhook(['type' => $type], 'test-invoice');
+        $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
+        $this->assert_access(false);
+    }
+
+    /** Lifecycle callbacks that may be redelivered after a settlement decision. */
+    public static function lifecycle_events(): array {
+        return [
+            'created' => ['InvoiceCreated'],
+            'processing' => ['InvoiceProcessing'],
+            'expired' => ['InvoiceExpired'],
+            'invalid' => ['InvoiceInvalid'],
+        ];
+    }
+
+    /** A review decision must still allow delivery after fresh settlement verification. */
+    public function test_review_can_complete_after_verified_settlement(): void {
+        global $DB;
+        \curl::mock_response(json_encode([
+            'id' => 'test-invoice', 'status' => 'New', 'additionalStatus' => 'PaidPartial',
+        ]));
+        webhook\handler::process_webhook(['type' => 'InvoiceSettled'], 'test-invoice');
+        $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
+        $this->assert_access(false);
+
+        \curl::mock_response(json_encode(['id' => 'test-invoice', 'status' => 'Settled', 'additionalStatus' => 'None']));
+        webhook\handler::process_webhook(['type' => 'InvoiceSettled'], 'test-invoice');
+        $this->assertSame('Settled', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
+        $this->assert_access(true);
+    }
+
     /** Check the actual course entitlement and delivery record. */
     private function assert_access(bool $expected): void {
         global $DB;
