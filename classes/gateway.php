@@ -71,12 +71,8 @@ class gateway extends \core_payment\gateway {
         $mform->addHelpButton('btcpay_webhook_secret', 'btcpay_webhook_secret', 'paygw_btcpay');
         $mform->addRule('btcpay_webhook_secret', get_string('required'), 'required', null, 'client');
 
-        $mform->addElement('select', 'btcpay_fulfill_status', get_string('btcpay_fulfill_status', 'paygw_btcpay'), [
-            'Settled' => get_string('fulfill_status_settled', 'paygw_btcpay'),
-            'Processing' => get_string('fulfill_status_processing', 'paygw_btcpay'),
-        ]);
-        $mform->setDefault('btcpay_fulfill_status', 'Settled');
-        $mform->addHelpButton('btcpay_fulfill_status', 'btcpay_fulfill_status', 'paygw_btcpay');
+        $mform->addElement('static', 'btcpay_settlement_policy', get_string('btcpay_fulfill_status', 'paygw_btcpay'),
+            get_string('btcpay_settlement_policy', 'paygw_btcpay'));
 
         $mform->addElement('text', 'btcpay_invoice_expiration_minutes',
             get_string('btcpay_invoice_expiration_minutes', 'paygw_btcpay'));

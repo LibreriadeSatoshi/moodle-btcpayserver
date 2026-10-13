@@ -32,7 +32,7 @@ defined('MOODLE_INTERNAL') || die();
 class handler {
 
     /**
-     * Process a verified webhook event (idempotent).
+     * Process an authenticated event. Exceptions must cause webhook redelivery.
      *
      * @param array $eventdata Parsed JSON webhook payload
      * @param string $invoiceid Invoice ID from payload
@@ -40,95 +40,69 @@ class handler {
     public static function process_webhook(array $eventdata, string $invoiceid): void {
         global $DB;
 
-        $txn = $DB->get_record('paygw_btcpay_txn', ['btcpay_invoice_id' => $invoiceid]);
-        if (!$txn) {
-            return;
-        }
-
-        $newstatus = self::extract_status_from_payload($eventdata);
-        if ($newstatus !== null) {
-            $txn->btcpay_status = $newstatus;
-            $txn->timemodified = time();
-            $DB->update_record('paygw_btcpay_txn', $txn);
-        }
-
-        if ((int) $txn->delivered === 1) {
-            return;
-        }
-
-        try {
-            $config = \core_payment\helper::get_gateway_configuration(
-                $txn->component,
-                $txn->paymentarea,
-                $txn->itemid,
-                'btcpay'
-            );
-        } catch (\Throwable $e) {
-            return;
-        }
-
-        $fulfillstatus = $config['btcpay_fulfill_status'] ?? 'Settled';
-        if ($newstatus === null) {
-            $newstatus = $txn->btcpay_status;
-        }
-        if ($newstatus !== $fulfillstatus) {
-            return;
-        }
-
-        try {
-            \core_payment\helper::deliver_order(
-                $txn->component,
-                $txn->paymentarea,
-                (int) $txn->itemid,
-                (int) $txn->paymentid,
-                (int) $txn->userid
-            );
-        } catch (\Throwable $e) {
-            return;
-        }
-
-        $txn->delivered = 1;
-        $txn->timemodified = time();
-        $DB->update_record('paygw_btcpay_txn', $txn);
-    }
-
-    /**
-     * Extract invoice status from webhook payload.
-     *
-     * BTCPay Server sends either data.status/status or a "type" (e.g. InvoiceSettled).
-     *
-     * @param array $eventdata Decoded webhook JSON
-     * @return string|null Status (e.g. Settled, Processing) or null if not found
-     */
-    protected static function extract_status_from_payload(array $eventdata): ?string {
-        if (isset($eventdata['data']['status']) && is_string($eventdata['data']['status'])) {
-            return $eventdata['data']['status'];
-        }
-        if (isset($eventdata['status']) && is_string($eventdata['status'])) {
-            return $eventdata['status'];
-        }
-        // BTCPay Greenfield webhook uses "type" (e.g. InvoiceSettled, InvoiceProcessing).
-        if (isset($eventdata['type']) && is_string($eventdata['type'])) {
-            return self::map_webhook_type_to_status($eventdata['type']);
-        }
-        return null;
-    }
-
-    /**
-     * Map BTCPay webhook event type to invoice status string.
-     *
-     * @param string $type e.g. InvoiceSettled, InvoiceProcessing
-     * @return string|null Status (Settled, Processing, New, Expired, Invalid) or null
-     */
-    protected static function map_webhook_type_to_status(string $type): ?string {
-        $map = [
-            'InvoiceSettled' => 'Settled',
-            'InvoiceProcessing' => 'Processing',
+        $type = $eventdata['type'] ?? null;
+        $statuses = [
             'InvoiceCreated' => 'New',
+            'InvoiceProcessing' => 'Processing',
             'InvoiceExpired' => 'Expired',
             'InvoiceInvalid' => 'Invalid',
-            'InvoicePaymentSettled' => 'Settled',
         ];
-        return $map[$type] ?? null;
+        // Payment-level events and arbitrary payload statuses cannot authorize delivery.
+        if (!is_string($type) || ($type !== 'InvoiceSettled' && !isset($statuses[$type]))) {
+            return;
+        }
+
+        $factory = \core\lock\lock_config::get_lock_factory('paygw_btcpay');
+        $lock = $factory->get_lock('invoice:' . $invoiceid, 10);
+        if (!$lock) {
+            throw new \moodle_exception('error_processing_failed', 'paygw_btcpay');
+        }
+        try {
+            // Read after acquiring the lock so concurrent callbacks cannot both deliver.
+            $txn = $DB->get_record('paygw_btcpay_txn', ['btcpay_invoice_id' => $invoiceid]);
+            if (!$txn || (int) $txn->delivered === 1) {
+                return;
+            }
+            if ($type !== 'InvoiceSettled') {
+                $txn->btcpay_status = $statuses[$type];
+                $txn->timemodified = time();
+                $DB->update_record('paygw_btcpay_txn', $txn);
+                return;
+            }
+
+            $config = \core_payment\helper::get_gateway_configuration(
+                $txn->component, $txn->paymentarea, $txn->itemid, 'btcpay'
+            );
+            $client = new \paygw_btcpay\client(
+                $config['btcpay_base_url'], $config['btcpay_api_key'], $config['btcpay_store_id']
+            );
+            $invoice = $client->get_invoice($invoiceid);
+            if (($invoice['status'] ?? null) !== 'Settled' ||
+                    !in_array($invoice['additionalStatus'] ?? null, ['None', 'PaidOver'], true)) {
+                $txn->btcpay_status = 'Review';
+                $txn->timemodified = time();
+                $DB->update_record('paygw_btcpay_txn', $txn);
+                error_log('paygw_btcpay: invoice ' . $invoiceid . ' requires manual review; delivery withheld.');
+                return;
+            }
+
+            $transaction = $DB->start_delegated_transaction();
+            try {
+                if (!\core_payment\helper::deliver_order(
+                    $txn->component, $txn->paymentarea, (int) $txn->itemid, (int) $txn->paymentid, (int) $txn->userid
+                )) {
+                    throw new \moodle_exception('error_processing_failed', 'paygw_btcpay');
+                }
+                $txn->btcpay_status = 'Settled';
+                $txn->delivered = 1;
+                $txn->timemodified = time();
+                $DB->update_record('paygw_btcpay_txn', $txn);
+                $transaction->allow_commit();
+            } catch (\Throwable $e) {
+                $transaction->rollback($e);
+            }
+        } finally {
+            $lock->release();
+        }
     }
 }

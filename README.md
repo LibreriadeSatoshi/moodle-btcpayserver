@@ -29,7 +29,7 @@ This plugin integrates [BTCPay Server](https://btcpayserver.org/) with Moodle's 
    - Replace `YOURMOODLE` with your Moodle site URL.
    - The URL must be publicly reachable over HTTPS.
 4. If your Moodle is behind a firewall or NAT, ensure the webhook URL is reachable from the internet (e.g. use a reverse proxy or a tunnel such as ngrok or Cloudflare Tunnel).
-5. Subscribe to these events:
+5. Enable automatic redelivery and subscribe to these events:
    - Invoice created
    - Invoice received payment
    - Invoice settled
@@ -47,7 +47,7 @@ This plugin integrates [BTCPay Server](https://btcpayserver.org/) with Moodle's 
    - **Store ID**: From your BTCPay Server store settings.
    - **API Key**: The API key you created.
    - **Webhook Secret**: The webhook secret from the webhook you created.
-   - **Fulfill Order Status**: Usually **Settled** (fulfil when the invoice is settled). Optionally **Processing** for earlier fulfilment.
+   - **Fulfill Order Status**: **Settled** only. The plugin verifies the invoice through the API before granting access.
    - **Invoice Expiration (minutes)**: How long the invoice is valid (default 60).
 5. Save changes.
 
@@ -95,3 +95,22 @@ GPL v3 or later.
 The repository root is the Moodle plugin directory. It can be checked out directly at `payment/gateway/btcpay` (or `public/payment/gateway/btcpay` in Moodle 5.1), including as a Git submodule.
 
 For the local Docker environment, see [development setup](docs/development-setup.md) and [development configuration](docs/development.md). `PLUGIN_PATH` in `env` is the destination within Moodle; the source is this repository root. Existing development checkouts should rerun `make bootstrap` after updating to this layout.
+
+## Security update 1.0.1
+
+Automatic delivery now requires an authenticated `InvoiceSettled` event and an invoice API response with `status=Settled` and `additionalStatus=None` or `PaidOver`. Payment-level events never grant access. Existing `Processing` delivery settings are no longer honored.
+
+Ensure the API key has `btcpay.store.canviewinvoices`, and enable automatic webhook redelivery. Temporary API or delivery failures return HTTP 503 for retry. An ineligible invoice received through `InvoiceSettled` is marked `Review`, with a server-log entry and a support message on the return page. Partial payments remain pending and may still complete normally; late payments require manual reconciliation in BTCPay.
+
+Review historical delivered transactions against BTCPay invoices: the old local `Settled` value does not prove full payment. This update does not revoke existing enrolments.
+
+## Automated regression tests
+
+After initializing Moodle's PHPUnit environment, run from the Moodle root:
+
+```sh
+php vendor/bin/phpunit public/payment/gateway/btcpay/tests/handler_test.php
+php vendor/bin/phpunit --testsuite core_payment_testsuite,enrol_fee_testsuite
+```
+
+For Moodle installations without a `public/` directory, omit that path prefix. The plugin tests check actual course enrolment and delivery records, mocking only BTCPay's HTTP responses. They cover partial, late, expired, unconfirmed, overpaid, malformed and mismatched invoices, stale events, verification failures and retries, duplicate delivery, and legacy Processing configuration.

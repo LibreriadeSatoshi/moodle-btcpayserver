@@ -50,6 +50,8 @@ $PAGE->set_heading(get_string('pluginname', 'paygw_btcpay'));
 
 if ((int) $txn->delivered === 1) {
     $message = get_string('payment_received', 'paygw_btcpay');
+} else if ($txn->btcpay_status === 'Review') {
+    $message = get_string('payment_review', 'paygw_btcpay');
 } else if ($txn->btcpay_status === 'Settled') {
     $message = get_string('payment_received_processing', 'paygw_btcpay');
 } else if ($txn->btcpay_status === 'Processing') {
@@ -82,7 +84,7 @@ if ($txn->btcpay_status === 'Settled' && (int) $txn->delivered === 0) {
 }
 
 // Add auto-refresh to continuously check if the webhook has delivered the payment
-if ((int) $txn->delivered === 0 && !in_array($txn->btcpay_status, ['Expired', 'Invalid'])) {
+if ((int) $txn->delivered === 0 && !in_array($txn->btcpay_status, ['Expired', 'Invalid', 'Review'])) {
     echo html_writer::tag('script', 'setTimeout(function() { window.location.reload(); }, 10000);');
 }
 

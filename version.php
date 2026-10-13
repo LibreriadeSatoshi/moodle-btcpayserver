@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'paygw_btcpay';
-$plugin->version = 2025021900;
-$plugin->release = '1.0';
+$plugin->version = 2026101300;
+$plugin->release = '1.0.1';
 $plugin->requires = 2022041900;
 $plugin->maturity = MATURITY_STABLE;
 $plugin->supported = [400, 405];
