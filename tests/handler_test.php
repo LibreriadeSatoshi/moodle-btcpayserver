@@ -61,6 +61,9 @@ final class handler_test extends \advanced_testcase {
 
     /** A confirmed partial payment must not enrol the student. */
     public function test_payment_settled_does_not_enrol(): void {
+        \curl::mock_response(json_encode([
+            'id' => 'test-invoice', 'status' => 'New', 'additionalStatus' => 'PaidPartial',
+        ]));
         webhook\handler::process_webhook(['type' => 'InvoicePaymentSettled', 'invoiceId' => 'test-invoice'], 'test-invoice');
         $this->assert_access(false);
     }
@@ -69,7 +72,7 @@ final class handler_test extends \advanced_testcase {
     public function test_unknown_event_does_not_use_stale_status(): void {
         global $DB;
         $DB->set_field('paygw_btcpay_txn', 'btcpay_status', 'Settled', ['id' => $this->txn->id]);
-        webhook\handler::process_webhook(['type' => 'InvoiceReceivedPayment'], 'test-invoice');
+        webhook\handler::process_webhook(['type' => 'UnknownEvent'], 'test-invoice');
         $this->assert_access(false);
     }
 
@@ -119,6 +122,9 @@ final class handler_test extends \advanced_testcase {
 
     /** Arbitrary payload status must not override a payment-level event. */
     public function test_payment_event_cannot_override_status(): void {
+        \curl::mock_response(json_encode([
+            'id' => 'test-invoice', 'status' => 'New', 'additionalStatus' => 'PaidPartial',
+        ]));
         webhook\handler::process_webhook([
             'type' => 'InvoicePaymentSettled', 'status' => 'Settled', 'data' => ['status' => 'Settled'],
         ], 'test-invoice');
@@ -168,9 +174,9 @@ final class handler_test extends \advanced_testcase {
     public function test_delayed_event_preserves_review(string $type): void {
         global $DB;
         \curl::mock_response(json_encode([
-            'id' => 'test-invoice', 'status' => 'Settled', 'additionalStatus' => 'PaidLate',
+            'id' => 'test-invoice', 'status' => 'Expired', 'additionalStatus' => 'PaidLate',
         ]));
-        webhook\handler::process_webhook(['type' => 'InvoiceSettled'], 'test-invoice');
+        webhook\handler::process_webhook(['type' => 'InvoicePaidAfterExpiration'], 'test-invoice');
         $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
 
         webhook\handler::process_webhook(['type' => $type], 'test-invoice');
@@ -194,7 +200,7 @@ final class handler_test extends \advanced_testcase {
         \curl::mock_response(json_encode([
             'id' => 'test-invoice', 'status' => 'New', 'additionalStatus' => 'PaidPartial',
         ]));
-        webhook\handler::process_webhook(['type' => 'InvoiceSettled'], 'test-invoice');
+        webhook\handler::process_webhook(['type' => 'InvoicePaymentSettled'], 'test-invoice');
         $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
         $this->assert_access(false);
 
@@ -202,6 +208,81 @@ final class handler_test extends \advanced_testcase {
         webhook\handler::process_webhook(['type' => 'InvoiceSettled'], 'test-invoice');
         $this->assertSame('Settled', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
         $this->assert_access(true);
+    }
+
+    /**
+     * Real payment and expiry events must flag partial and late payments for review.
+     *
+     * @dataProvider payment_exceptions
+     * @param string $type Webhook event
+     * @param string $status Current invoice status
+     * @param string $additionalstatus Current payment exception
+     */
+    #[DataProvider('payment_exceptions')]
+    public function test_payment_exception_requires_review(string $type, string $status, string $additionalstatus): void {
+        global $DB;
+        \curl::mock_response(json_encode([
+            'id' => 'test-invoice', 'status' => $status, 'additionalStatus' => $additionalstatus,
+        ]));
+        webhook\handler::process_webhook(['type' => $type], 'test-invoice');
+        $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
+        $this->assert_access(false);
+    }
+
+    /** Events and invoice states observed for partial and late payments. */
+    public static function payment_exceptions(): array {
+        return [
+            'partial received' => ['InvoiceReceivedPayment', 'New', 'PaidPartial'],
+            'partial confirmed' => ['InvoicePaymentSettled', 'New', 'PaidPartial'],
+            'partial expired' => ['InvoiceExpiredPaidPartial', 'Expired', 'PaidPartial'],
+            'late received' => ['InvoiceReceivedPayment', 'Expired', 'PaidLate'],
+            'late confirmed' => ['InvoicePaymentSettled', 'Expired', 'PaidLate'],
+            'paid after expiry' => ['InvoicePaidAfterExpiration', 'Expired', 'PaidLate'],
+        ];
+    }
+
+    /**
+     * Review-only events must not deliver even when the API reports an eligible invoice.
+     *
+     * @dataProvider review_events
+     * @param string $type Webhook event
+     */
+    #[DataProvider('review_events')]
+    public function test_review_event_cannot_deliver_settled_invoice(string $type): void {
+        global $DB;
+        $DB->set_field('paygw_btcpay_txn', 'btcpay_status', 'Review', ['id' => $this->txn->id]);
+        \curl::mock_response(json_encode(['id' => 'test-invoice', 'status' => 'Settled', 'additionalStatus' => 'None']));
+        webhook\handler::process_webhook(['type' => $type, 'status' => 'Settled'], 'test-invoice');
+        $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
+        $this->assert_access(false);
+    }
+
+    /** Events which inspect invoices for review but never authorize delivery. */
+    public static function review_events(): array {
+        return [
+            'received' => ['InvoiceReceivedPayment'],
+            'confirmed' => ['InvoicePaymentSettled'],
+            'late' => ['InvoicePaidAfterExpiration'],
+            'partial expired' => ['InvoiceExpiredPaidPartial'],
+        ];
+    }
+
+    /** A failed review lookup must propagate for retry, then classify without delivery. */
+    public function test_review_lookup_failure_can_retry(): void {
+        global $DB;
+        \curl::mock_response('not-json');
+        try {
+            webhook\handler::process_webhook(['type' => 'InvoiceReceivedPayment'], 'test-invoice');
+            $this->fail('A failed review lookup must propagate for webhook redelivery.');
+        } catch (\moodle_exception $e) {
+            $this->assert_access(false);
+        }
+        \curl::mock_response(json_encode([
+            'id' => 'test-invoice', 'status' => 'New', 'additionalStatus' => 'PaidPartial',
+        ]));
+        webhook\handler::process_webhook(['type' => 'InvoiceReceivedPayment'], 'test-invoice');
+        $this->assertSame('Review', $DB->get_field('paygw_btcpay_txn', 'btcpay_status', ['id' => $this->txn->id]));
+        $this->assert_access(false);
     }
 
     /** Check the actual course entitlement and delivery record. */

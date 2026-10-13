@@ -47,8 +47,15 @@ class handler {
             'InvoiceExpired' => 'Expired',
             'InvoiceInvalid' => 'Invalid',
         ];
-        // Payment-level events and arbitrary payload statuses cannot authorize delivery.
-        if (!is_string($type) || ($type !== 'InvoiceSettled' && !isset($statuses[$type]))) {
+        $reviewevents = [
+            'InvoiceReceivedPayment',
+            'InvoicePaymentSettled',
+            'InvoicePaidAfterExpiration',
+            'InvoiceExpiredPaidPartial',
+        ];
+        // Payment-level events inspect exceptions only; they cannot authorize delivery.
+        if (!is_string($type) ||
+                ($type !== 'InvoiceSettled' && !isset($statuses[$type]) && !in_array($type, $reviewevents, true))) {
             return;
         }
 
@@ -63,7 +70,7 @@ class handler {
             if (!$txn || (int) $txn->delivered === 1) {
                 return;
             }
-            if ($type !== 'InvoiceSettled') {
+            if (isset($statuses[$type])) {
                 // Only a freshly verified settlement can resolve a review decision.
                 if ($txn->btcpay_status === 'Review') {
                     return;
@@ -81,12 +88,19 @@ class handler {
                 $config['btcpay_base_url'], $config['btcpay_api_key'], $config['btcpay_store_id']
             );
             $invoice = $client->get_invoice($invoiceid);
-            if (($invoice['status'] ?? null) !== 'Settled' ||
-                    !in_array($invoice['additionalStatus'] ?? null, ['None', 'PaidOver'], true)) {
+            $additionalstatus = $invoice['additionalStatus'] ?? null;
+            $fullysettled = ($invoice['status'] ?? null) === 'Settled' &&
+                in_array($additionalstatus, ['None', 'PaidOver'], true);
+            if (in_array($additionalstatus, ['PaidPartial', 'PaidLate'], true) ||
+                    ($type === 'InvoiceSettled' && !$fullysettled)) {
                 $txn->btcpay_status = 'Review';
                 $txn->timemodified = time();
                 $DB->update_record('paygw_btcpay_txn', $txn);
                 error_log('paygw_btcpay: transaction ' . (int) $txn->id . ' requires manual review; delivery withheld.');
+                return;
+            }
+            // Even an eligible API response cannot turn a payment event into invoice settlement.
+            if ($type !== 'InvoiceSettled') {
                 return;
             }
 

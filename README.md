@@ -29,12 +29,16 @@ This plugin integrates [BTCPay Server](https://btcpayserver.org/) with Moodle's 
    - Replace `YOURMOODLE` with your Moodle site URL.
    - The URL must be publicly reachable over HTTPS.
 4. If your Moodle is behind a firewall or NAT, ensure the webhook URL is reachable from the internet (e.g. use a reverse proxy or a tunnel such as ngrok or Cloudflare Tunnel).
-5. Enable automatic redelivery and subscribe to these events:
+5. Enable automatic redelivery and select **Send me everything**, or subscribe to these events:
    - Invoice created
    - Invoice received payment
+   - Invoice payment settled
+   - Invoice processing
    - Invoice settled
    - Invoice invalid
    - Invoice expired
+   - Invoice paid after expiration
+   - Invoice expired paid partial
 6. Copy the **webhook secret** (shown only once).
 
 ## Moodle configuration
@@ -100,7 +104,9 @@ For the local Docker environment, see [development setup](docs/development-setup
 
 Automatic delivery now requires an authenticated `InvoiceSettled` event and an invoice API response with `status=Settled` and `additionalStatus=None` or `PaidOver`. Payment-level events never grant access. Existing `Processing` delivery settings are no longer honored.
 
-Ensure the API key has `btcpay.store.canviewinvoices`, and enable automatic webhook redelivery. Temporary API or delivery failures return HTTP 503 for retry. An ineligible invoice received through `InvoiceSettled` is marked `Review`, with a server-log entry and a support message on the return page. Partial payments remain pending and may still complete normally; late payments require manual reconciliation in BTCPay.
+Ensure the API key has `btcpay.store.canviewinvoices`, and enable automatic webhook redelivery. Subscribe to `InvoiceReceivedPayment`, `InvoicePaymentSettled`, `InvoicePaidAfterExpiration` and `InvoiceExpiredPaidPartial` as well as the invoice lifecycle events, or use "Send me everything". Temporary API or delivery failures return HTTP 503 for retry.
+
+Payment and payment-exception events fetch the invoice to identify `PaidPartial` and `PaidLate`. These payments are marked `Review`, without delivery, with a server-log entry and a support message on the return page. An ineligible invoice received through `InvoiceSettled` is also marked `Review`. Administrators reconcile these payments in BTCPay; this update does not add an administrator review screen or send notifications. A partial payment that is subsequently completed can still deliver automatically when a fresh `InvoiceSettled` event passes verification. Delayed lifecycle events cannot clear a review decision.
 
 Review historical delivered transactions against BTCPay invoices: the old local `Settled` value does not prove full payment. This update does not revoke existing enrolments.
 
