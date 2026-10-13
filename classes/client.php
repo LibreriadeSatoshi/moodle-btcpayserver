@@ -97,6 +97,22 @@ class client {
     }
 
     /**
+     * Fetch the current invoice from the configured store before granting access.
+     *
+     * @param string $invoiceid Expected invoice ID
+     * @return array Verified invoice response
+     */
+    public function get_invoice(string $invoiceid): array {
+        $url = $this->baseurl . '/api/v1/stores/' . rawurlencode($this->storeid) .
+            '/invoices/' . rawurlencode($invoiceid);
+        $invoice = $this->request('GET', $url, null, 'error_invoice_verification_failed');
+        if (($invoice['id'] ?? null) !== $invoiceid) {
+            throw new \moodle_exception('error_invoice_verification_failed', 'paygw_btcpay');
+        }
+        return $invoice;
+    }
+
+    /**
      * Verify webhook signature (HMAC-SHA256, constant-time comparison).
      *
      * @param string $rawbody Raw request body (before JSON parsing)
@@ -125,10 +141,14 @@ class client {
      * @param string $method GET or POST
      * @param string $url Full URL
      * @param array|null $body JSON body for POST
+     * @param string $errorcode Language string for request failures
      * @return array Decoded JSON response
      * @throws \moodle_exception on error
      */
-    protected function request(string $method, string $url, ?array $body): array {
+    protected function request(string $method, string $url, ?array $body,
+            string $errorcode = 'error_invoice_creation_failed'): array {
+        global $CFG;
+        require_once($CFG->libdir . '/filelib.php');
         $curl = new \curl();
         $curl->setopt(['CURLOPT_TIMEOUT' => $this->timeout]);
         $headers = [
@@ -139,7 +159,7 @@ class client {
         if ($method === 'POST' && $body !== null) {
             $raw = json_encode($body);
             if ($raw === false) {
-                throw new \moodle_exception('error_invoice_creation_failed', 'paygw_btcpay', '', null, 'JSON encode error');
+                throw new \moodle_exception($errorcode, 'paygw_btcpay', '', null, 'JSON encode error');
             }
             $response = $curl->post($url, $raw, ['CURLOPT_HTTPHEADER' => $headers]);
         } else {
@@ -150,19 +170,19 @@ class client {
         $errno = $curl->get_errno();
         if ($errno) {
             $err = $curl->get_error();
-            throw new \moodle_exception('error_invoice_creation_failed', 'paygw_btcpay', '', null, $err ?: 'CURL error');
+            throw new \moodle_exception($errorcode, 'paygw_btcpay', '', null, $err ?: 'CURL error');
         }
 
         $code = (int) ($info['http_code'] ?? 0);
         $decoded = json_decode($response, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \moodle_exception('error_invoice_creation_failed', 'paygw_btcpay', '', null,
+            throw new \moodle_exception($errorcode, 'paygw_btcpay', '', null,
                 'Invalid JSON response');
         }
 
-        if ($code >= 400) {
+        if ($code < 200 || $code >= 300) {
             $message = is_array($decoded) && isset($decoded['message']) ? $decoded['message'] : $response;
-            throw new \moodle_exception('error_invoice_creation_failed', 'paygw_btcpay', '', null,
+            throw new \moodle_exception($errorcode, 'paygw_btcpay', '', null,
                 'HTTP ' . $code . ': ' . (is_string($message) ? $message : json_encode($message)));
         }
 

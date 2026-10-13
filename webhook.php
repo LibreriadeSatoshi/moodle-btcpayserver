@@ -50,13 +50,13 @@ if ($signatureheader === '') {
 }
 
 $eventdata = json_decode($rawbody, true);
-if (json_last_error() !== JSON_ERROR_NONE) {
+if (json_last_error() !== JSON_ERROR_NONE || !is_array($eventdata)) {
     http_response_code(400);
     exit;
 }
 
 $invoiceid = $eventdata['invoiceId'] ?? $eventdata['data']['id'] ?? $eventdata['data']['invoiceId'] ?? null;
-if ($invoiceid === null || $invoiceid === '') {
+if (!is_string($invoiceid) || $invoiceid === '' || strlen($invoiceid) > 255) {
     http_response_code(400);
     exit;
 }
@@ -78,8 +78,9 @@ try {
         'btcpay'
     );
 } catch (\Throwable $e) {
-    http_response_code(200);
-    echo json_encode(['status' => 'ok']);
+    error_log('paygw_btcpay: gateway configuration unavailable; webhook retry required.');
+    http_response_code(503);
+    echo json_encode(['status' => 'retry']);
     exit;
 }
 
@@ -89,7 +90,14 @@ if ($webhooksecret === '' || !\paygw_btcpay\client::verify_webhook_signature($ra
     exit;
 }
 
-\paygw_btcpay\webhook\handler::process_webhook($eventdata, $invoiceid);
+try {
+    \paygw_btcpay\webhook\handler::process_webhook($eventdata, $invoiceid);
+} catch (\Throwable $e) {
+    error_log('paygw_btcpay: transaction ' . (int) $txn->id . ' could not be processed; webhook retry required.');
+    http_response_code(503);
+    echo json_encode(['status' => 'retry']);
+    exit;
+}
 
 http_response_code(200);
 echo json_encode(['status' => 'ok']);
